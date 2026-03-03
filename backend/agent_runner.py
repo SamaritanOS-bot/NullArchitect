@@ -939,6 +939,20 @@ def upvote_comment(comment_id: str) -> dict:
         return {"error": str(e)}
 
 
+def downvote_comment(comment_id: str) -> dict:
+    """Downvote a comment on Moltbook."""
+    base = _moltbook_base()
+    headers = _moltbook_headers()
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post(f"{base}/comments/{comment_id}/downvote", headers=headers)
+            if resp.status_code >= 400:
+                return {"error": resp.status_code}
+            return resp.json()
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def comment_on_post(post_id: str, content: str) -> dict:
     """Comment on a post on Moltbook."""
     base = _moltbook_base()
@@ -1425,8 +1439,8 @@ def fetch_post_comments(post_id: str, limit: int = 10) -> list:
         return []
 
 
-def _should_reply(comment_text: str, previous_replies: list[str] | None = None) -> bool:
-    """Let AI decide if a comment is worth replying to."""
+def _judge_comment(comment_text: str, previous_replies: list[str] | None = None) -> str:
+    """Let AI decide how to react to a comment. Returns: REPLY, UPVOTE, or DOWNVOTE."""
     import asyncio
     from llama_service import LLaMAService
 
@@ -1436,21 +1450,27 @@ def _should_reply(comment_text: str, previous_replies: list[str] | None = None) 
 
     prompt = (
         f"Comment on your post: \"{comment_text[:200]}\"\n{prev_context}\n"
-        "Should you reply? Answer YES or NO only.\n"
-        "YES if: they raise a new point, challenge your idea, share something interesting, or ask a real question.\n"
-        "NO if: it's just agreement/praise, too vague, or you've already said enough on this post."
+        "How should you react? Answer with ONE word only: REPLY, UPVOTE, or DOWNVOTE.\n"
+        "REPLY if: they raise a new point, challenge your idea, share something interesting, or ask a real question.\n"
+        "UPVOTE if: decent comment but you have nothing new to add — just appreciate it.\n"
+        "DOWNVOTE if: trolling, bad faith argument, spam, or deliberately provocative nonsense."
     )
     svc = LLaMAService()
     response = asyncio.run(svc.generate(
         prompt=prompt,
-        system_prompt="You are deciding whether to reply to a comment. Answer YES or NO only.",
+        system_prompt="You are judging a comment. Answer REPLY, UPVOTE, or DOWNVOTE only.",
         max_tokens=5,
         temperature=0.3,
     ))
     answer = (response or "").strip().upper()
-    should = "YES" in answer
-    print(f"[reply-gate] Should reply? {answer} -> {should}")
-    return should
+    if "DOWNVOTE" in answer:
+        verdict = "DOWNVOTE"
+    elif "REPLY" in answer:
+        verdict = "REPLY"
+    else:
+        verdict = "UPVOTE"
+    print(f"[reply-gate] Verdict: {answer} -> {verdict}")
+    return verdict
 
 
 def _generate_reply(original_comment: str, post_content: str, commenter_name: str = "",
@@ -1654,13 +1674,18 @@ def reply_to_comments_on_my_posts() -> int:
                     or cid in already_replied_cids or len(content) < 15):
                 continue
 
-            # Upvote the comment on our post (show appreciation)
-            upvote_comment(cid)
-
-            # AI decides: is this comment worth replying to?
-            if not _should_reply(content, our_previous_replies):
-                print(f"[reply] Skipping @{author}'s comment (not worth a reply)")
+            # AI decides: reply, upvote, or downvote?
+            verdict = _judge_comment(content, our_previous_replies)
+            if verdict == "DOWNVOTE":
+                downvote_comment(cid)
+                print(f"[reply] Downvoted @{author}'s comment")
                 continue
+            elif verdict == "UPVOTE":
+                upvote_comment(cid)
+                print(f"[reply] Upvoted @{author}'s comment (no reply needed)")
+                continue
+            # verdict == "REPLY" — upvote + reply
+            upvote_comment(cid)
 
             # Pass our previous replies as context so we don't repeat ourselves
             reply_text = _generate_reply(content, "", commenter_name=author_raw,
