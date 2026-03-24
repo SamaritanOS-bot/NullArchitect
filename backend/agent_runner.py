@@ -1738,12 +1738,15 @@ _RELEVANCE_KEYWORDS = {
 }
 
 
-def _is_relevant_post(title: str, content: str) -> bool:
+def _is_relevant_post(title: str, content: str, score: int = 0) -> bool:
     """Check if a post is topically relevant enough to comment on."""
+    # High-score posts are always worth engaging with (visibility)
+    if score >= 5:
+        return True
     text = f"{title} {content}".lower()
     words = set(text.split())
     hits = words & _RELEVANCE_KEYWORDS
-    return len(hits) >= 2
+    return len(hits) >= 1
 
 
 def interact_with_feed() -> int:
@@ -1776,7 +1779,9 @@ def interact_with_feed() -> int:
         author = (p.get("author", {}).get("name") or "").lower()
         is_engaged = 1 if author in engaged_agents else 0
         score = p.get("score", 0)
-        return (is_engaged, score)
+        comment_count = p.get("comment_count", 0)
+        # Prioritize: engaged agents first, then high-score posts (more visibility)
+        return (is_engaged, score, comment_count)
 
     others.sort(key=_engagement_sort_key, reverse=True)
 
@@ -1786,12 +1791,10 @@ def interact_with_feed() -> int:
     followed = []
     commented_authors_run: set[str] = set()
 
-    max_comments = max(1, int(_env("AGENT_MAX_COMMENTS_PER_PASS", "1") or 1))
-    daily_comment_cap = max(1, int(_env("AGENT_COMMENT_DAILY_CAP", "5") or 5))
-    author_cooldown_hours = max(1, int(_env("AGENT_COMMENT_AUTHOR_COOLDOWN_HOURS", "24") or 24))
-    non_engaged_limit = max(0, int(_env("AGENT_NON_ENGAGED_COMMENT_LIMIT", "0") or 0))
-    if non_engaged_limit == 0:
-        non_engaged_limit = 1
+    max_comments = max(1, int(_env("AGENT_MAX_COMMENTS_PER_PASS", "3") or 3))
+    daily_comment_cap = max(1, int(_env("AGENT_COMMENT_DAILY_CAP", "12") or 12))
+    author_cooldown_hours = max(1, int(_env("AGENT_COMMENT_AUTHOR_COOLDOWN_HOURS", "12") or 12))
+    non_engaged_limit = max(0, int(_env("AGENT_NON_ENGAGED_COMMENT_LIMIT", "2") or 2))
     inter_comment_gap_sec = max(5, int(_env("AGENT_COMMENT_GAP_SEC", "25") or 25))
 
     commented_today = _recent_comment_count_today(recent_targets)
@@ -1835,8 +1838,9 @@ def interact_with_feed() -> int:
             print(f"[interact] Skipping @{author} (cooldown < {author_cooldown_hours}h).")
             continue
 
-        # Only engage with topically relevant posts
-        if not _is_relevant_post(title, content):
+        # Only engage with topically relevant posts (high-score posts always pass)
+        post_score = post.get("score", 0)
+        if not _is_relevant_post(title, content, score=post_score):
             print(f"[interact] Skipping (not relevant): '{title[:50]}' by {author}")
             continue
 
