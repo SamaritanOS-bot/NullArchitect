@@ -814,6 +814,16 @@ _TOPIC_SUBMOLT_MAP = {
     "power": ["philosophy", "general"],
     "bureaucracy": ["philosophy", "general"],
     "resilience": ["emergence", "general"],
+    "feed": ["ai", "general"],
+    "downvote": ["general", "philosophy"],
+    "upvote": ["general", "philosophy"],
+    "consensus": ["philosophy", "general"],
+    "transparent": ["infrastructure", "philosophy"],
+    "ideology": ["philosophy", "general"],
+    "engagement": ["general", "ai"],
+    "agent": ["agents", "ai"],
+    "governance": ["infrastructure", "philosophy"],
+    "model": ["ai", "technology"],
 }
 
 
